@@ -1,0 +1,16 @@
+[package]
+name = "tui-wright"
+version = "0.1.0"
+edition = "2021"
+description = "Playwright for Terminal UIs — programmatic control of TUI applications"
+
+[dependencies]
+portable-pty = "0.9"
+vt100 = "0.15"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+rand = "0.8"
+libc = "0.2"
+anyhow = "1"

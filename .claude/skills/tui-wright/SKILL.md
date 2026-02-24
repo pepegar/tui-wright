@@ -1,0 +1,226 @@
+---
+name: tui-wright
+description: Use this skill when you need to interact with a TUI (terminal UI) application programmatically — spawning it, reading its screen, sending keyboard/mouse input, resizing, or debugging its behavior. Use when the user asks to "debug a TUI", "interact with a terminal app", "test a CLI tool", "read what's on screen", or anything involving programmatic control of a terminal application.
+---
+
+# tui-wright: Programmatic TUI Control
+
+You have access to `tui-wright`, a tool that spawns TUI processes in a virtual terminal and lets you control them via separate CLI commands. This is how you interact with terminal applications like `htop`, `vim`, `less`, `psql`, database REPLs, or any program that draws to the terminal.
+
+## Quick Reference
+
+```bash
+tui-wright spawn <command> [args...]   # Start a session (returns session ID)
+tui-wright screen <session>            # Read current screen text
+tui-wright screen <session> --json     # Screen with cell attributes (color, bold, etc.)
+tui-wright type <session> <text>       # Send text characters
+tui-wright key <session> <name>        # Send special key
+tui-wright mouse <session> <action> <col> <row>  # Send mouse event
+tui-wright resize <session> <cols> <rows>         # Change viewport
+tui-wright cursor <session>            # Get cursor position
+tui-wright kill <session>              # End session
+tui-wright list                        # List active sessions
+```
+
+## Core Workflow
+
+Every interaction follows the same pattern: **act, wait, read**.
+
+```bash
+# 1. Spawn the application
+SESSION=$(tui-wright spawn <command> | awk '{print $2}')
+
+# 2. Do something (type, key, mouse, resize)
+tui-wright type $SESSION "some input"
+tui-wright key $SESSION enter
+
+# 3. Wait for the TUI to update (important!)
+sleep 0.2
+
+# 4. Read the screen to see what happened
+tui-wright screen $SESSION
+```
+
+**Always add a short sleep** (0.2-0.5s) after sending input before reading the screen. TUI applications need time to process input and redraw.
+
+## Spawning Sessions
+
+```bash
+# Default: 80x24 terminal
+SESSION=$(tui-wright spawn bash | awk '{print $2}')
+
+# Custom size
+SESSION=$(tui-wright spawn htop --cols 120 --rows 40 | awk '{print $2}')
+
+# With arguments
+SESSION=$(tui-wright spawn vim myfile.txt | awk '{print $2}')
+```
+
+The `spawn` command starts a background daemon and returns immediately. The session ID is a short hex string like `a1b2c3`.
+
+## Sending Input
+
+### Text
+
+```bash
+tui-wright type $SESSION "SELECT * FROM users;"
+```
+
+This sends characters one by one, as if typed on a keyboard. Does **not** add a newline — use `key enter` for that.
+
+### Special Keys
+
+```bash
+tui-wright key $SESSION enter
+tui-wright key $SESSION tab
+tui-wright key $SESSION escape
+tui-wright key $SESSION up
+tui-wright key $SESSION ctrl+c
+tui-wright key $SESSION f5
+```
+
+Supported key names:
+
+| Category | Keys |
+|----------|------|
+| Navigation | `up`, `down`, `left`, `right`, `home`, `end`, `pageup`/`pgup`, `pagedown`/`pgdn` |
+| Editing | `enter`/`return`, `tab`, `backspace`/`bs`, `delete`/`del`, `insert`/`ins`, `space` |
+| Modifiers | `ctrl+a` through `ctrl+z`, `alt+<char>` |
+| Function | `f1` through `f12` |
+| Other | `escape`/`esc` |
+
+Both `ctrl+c` and `ctrl-c` syntax work. Key names are case-insensitive.
+
+### Mouse
+
+```bash
+tui-wright mouse $SESSION press 10 5      # Click at column 10, row 5
+tui-wright mouse $SESSION release 10 5    # Release at same position
+tui-wright mouse $SESSION scrollup 0 0    # Scroll up
+tui-wright mouse $SESSION scrolldown 0 0  # Scroll down
+tui-wright mouse $SESSION move 15 8       # Mouse move (for hover/drag)
+```
+
+Coordinates are 0-indexed. Uses SGR mouse encoding (no column limit).
+
+## Reading the Screen
+
+### Plain text (most common)
+
+```bash
+tui-wright screen $SESSION
+```
+
+Returns the terminal content as plain text, one line per row, trailing whitespace trimmed, trailing empty lines removed.
+
+### JSON with cell attributes
+
+```bash
+tui-wright screen $SESSION --json
+```
+
+Returns a JSON object. See [reference.md](./reference.md) for the full schema.
+
+Use `--json` when you need to inspect colors, bold/italic styling, or precise cell contents. For most debugging, plain text is sufficient.
+
+### Cursor position
+
+```bash
+tui-wright cursor $SESSION
+# Output: row: 5, col: 12
+```
+
+## Resizing
+
+```bash
+tui-wright resize $SESSION 120 40
+```
+
+The TUI application receives a `SIGWINCH` and redraws at the new size. Wait briefly after resizing before reading the screen.
+
+## Session Management
+
+```bash
+# List all active sessions
+tui-wright list
+
+# Kill a specific session
+tui-wright kill $SESSION
+```
+
+**Always kill sessions when done.** Each session is a background daemon holding a PTY.
+
+## Practical Patterns
+
+### Run a command in bash and read output
+
+```bash
+SESSION=$(tui-wright spawn bash | awk '{print $2}')
+tui-wright type $SESSION "ls -la /tmp"
+tui-wright key $SESSION enter
+sleep 0.3
+tui-wright screen $SESSION
+tui-wright kill $SESSION
+```
+
+### Navigate a menu-driven TUI
+
+```bash
+SESSION=$(tui-wright spawn htop | awk '{print $2}')
+sleep 0.5
+tui-wright screen $SESSION          # See initial state
+tui-wright key $SESSION down         # Move selection down
+tui-wright key $SESSION down
+sleep 0.2
+tui-wright screen $SESSION          # See updated selection
+tui-wright key $SESSION f10          # Quit htop
+tui-wright kill $SESSION
+```
+
+### Work with a REPL
+
+```bash
+SESSION=$(tui-wright spawn python3 | awk '{print $2}')
+sleep 0.5
+tui-wright type $SESSION "2 + 2"
+tui-wright key $SESSION enter
+sleep 0.2
+tui-wright screen $SESSION          # Should show "4"
+tui-wright key $SESSION ctrl+d      # Exit python
+tui-wright kill $SESSION
+```
+
+### Edit a file in vim
+
+```bash
+SESSION=$(tui-wright spawn vim test.txt | awk '{print $2}')
+sleep 0.5
+tui-wright key $SESSION i            # Enter insert mode
+tui-wright type $SESSION "Hello, world!"
+tui-wright key $SESSION escape       # Back to normal mode
+tui-wright type $SESSION ":wq"       # Write and quit
+tui-wright key $SESSION enter
+tui-wright kill $SESSION
+```
+
+### Inspect screen attributes for color/style debugging
+
+```bash
+SESSION=$(tui-wright spawn bash | awk '{print $2}')
+tui-wright type $SESSION "ls --color"
+tui-wright key $SESSION enter
+sleep 0.3
+tui-wright screen $SESSION --json | jq '.cells[1][0]'
+# Shows: { "char": "f", "fg": { "r": 0, "g": 255, "b": 0 }, "bold": true, ... }
+tui-wright kill $SESSION
+```
+
+## Important Notes
+
+- **Always sleep after input.** TUI apps need time to redraw. 0.2-0.5s is usually enough.
+- **Always kill sessions when done.** They are background daemons.
+- **Screen text is trimmed.** Trailing whitespace per line and trailing empty lines are removed.
+- **Type does not add newlines.** Use `tui-wright key $SESSION enter` after typing a command.
+- **Sessions persist across your Bash calls.** The session ID is all you need to reconnect.
+
+For the full JSON screen schema and advanced usage, see [reference.md](./reference.md).
