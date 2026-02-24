@@ -4,6 +4,8 @@ use std::thread;
 
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 
+use std::path::Path;
+
 use crate::error::{Error, Result};
 use crate::input::{self, Key};
 use crate::screen::{self, ScreenSnapshot};
@@ -17,7 +19,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn spawn(command: &str, args: &[String], cols: u16, rows: u16) -> Result<Self> {
+    pub fn spawn(command: &str, args: &[String], cols: u16, rows: u16, cwd: &Path) -> Result<Self> {
         let pty_system = NativePtySystem::default();
         let pty = pty_system.openpty(PtySize {
             rows,
@@ -28,6 +30,7 @@ impl Session {
 
         let mut cmd = CommandBuilder::new(command);
         cmd.args(args);
+        cmd.cwd(cwd);
 
         let child = pty.slave.spawn_command(cmd)?;
         let writer = pty.master.take_writer()?;

@@ -17,14 +17,14 @@ pub fn generate_session_id() -> String {
     format!("{:06x}", rng.gen::<u32>() & 0xFFFFFF)
 }
 
-pub fn run_daemon(command: &str, args: &[String], cols: u16, rows: u16, session_id: &str) -> Result<()> {
+pub fn run_daemon(command: &str, args: &[String], cols: u16, rows: u16, session_id: &str, cwd: &std::path::Path) -> Result<()> {
     let sock = socket_path(session_id);
     if sock.exists() {
         std::fs::remove_file(&sock)?;
     }
 
     let listener = UnixListener::bind(&sock)?;
-    let mut session = Session::spawn(command, args, cols, rows)?;
+    let mut session = Session::spawn(command, args, cols, rows, cwd)?;
 
     for stream in listener.incoming() {
         let stream = match stream {

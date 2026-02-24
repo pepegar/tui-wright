@@ -90,6 +90,7 @@ fn main() {
         Commands::Spawn { command, args, cols, rows } => {
             let session_id = server::generate_session_id();
             let sock = server::socket_path(&session_id);
+            let cwd = std::env::current_dir().expect("Failed to get current directory");
 
             // Fork to background using double-fork technique
             unsafe {
@@ -133,7 +134,7 @@ fn main() {
                 }
             }
 
-            if let Err(e) = server::run_daemon(&command, &args, cols, rows, &session_id) {
+            if let Err(e) = server::run_daemon(&command, &args, cols, rows, &session_id, &cwd) {
                 eprintln!("Daemon error: {}", e);
                 let _ = std::fs::remove_file(&sock);
                 std::process::exit(1);
