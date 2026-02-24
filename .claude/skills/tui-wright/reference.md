@@ -80,6 +80,39 @@ tui-wright screen $SESSION --json | jq '.cells[0][0].fg'
 tui-wright screen $SESSION --json | jq '{rows, cols}'
 ```
 
+## Python Parsing Recipes
+
+For more complex analysis, Python is often easier than jq:
+
+```bash
+tui-wright screen $SESSION --json | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+
+# Extract text from a specific row
+row = data['cells'][0]
+text = ''.join(c.get('char', ' ') for c in row)
+print(text.strip())
+
+# Find cells with specific attributes
+for r, row in enumerate(data['cells']):
+    for c, cell in enumerate(row):
+        if cell.get('bold'):
+            ch = cell.get('char', ' ')
+            fg = cell.get('fg', {})
+            print('row=%d col=%d char=%r fg=(%d,%d,%d)' % (
+                r, c, ch, fg.get('r',0), fg.get('g',0), fg.get('b',0)))
+
+# Find a row containing specific text
+for i, row in enumerate(data['cells']):
+    line = ''.join(c.get('char', ' ') for c in row)
+    if 'search term' in line:
+        print('Row %d: %s' % (i, line.strip()))
+"
+```
+
+**Note:** Avoid `!r` inside f-strings when using inline Python with bash — use `%` formatting or intermediate variables instead.
+
 ## Spawn Options
 
 | Option | Default | Description |

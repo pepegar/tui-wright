@@ -91,6 +91,18 @@ Supported key names:
 
 Both `ctrl+c` and `ctrl-c` syntax work. Key names are case-insensitive.
 
+**`shift+<key>` is NOT supported.** To send uppercase letters (e.g., htop's `M` for sort-by-memory), use `type` instead of `key`:
+
+```bash
+# WRONG — will error with "Unknown key name: shift+m"
+tui-wright key $SESSION shift+m
+
+# CORRECT — sends the uppercase character 'M'
+tui-wright type $SESSION "M"
+```
+
+This applies to any shortcut that uses an uppercase letter.
+
 ### Mouse
 
 ```bash
@@ -203,6 +215,42 @@ tui-wright key $SESSION enter
 tui-wright kill $SESSION
 ```
 
+### Profile a system with htop
+
+```bash
+SESSION=$(tui-wright spawn htop --cols 120 --rows 40 | awk '{print $2}')
+sleep 0.5
+tui-wright screen $SESSION                    # Read initial state (sorted by CPU%)
+
+# Sort by memory usage — 'M' is uppercase, so use type, not key
+tui-wright type $SESSION "M"
+sleep 0.3
+tui-wright screen $SESSION                    # Now sorted by MEM%
+
+# Filter to specific processes
+tui-wright key $SESSION f4                    # Open filter
+sleep 0.2
+tui-wright type $SESSION "docker"             # Type filter text
+sleep 0.3
+tui-wright screen $SESSION                    # Only Docker processes shown
+tui-wright key $SESSION escape                # Clear filter
+
+# Toggle tree view to see process hierarchy
+tui-wright key $SESSION f5
+sleep 0.3
+tui-wright screen $SESSION                    # Tree view with ├─ └─ connectors
+
+# Search for a specific process
+tui-wright key $SESSION f3                    # Open search
+tui-wright type $SESSION "chrome"
+sleep 0.3
+tui-wright screen $SESSION                    # Cursor jumps to first match
+tui-wright key $SESSION escape                # Close search
+
+tui-wright key $SESSION f10                   # Quit htop
+tui-wright kill $SESSION
+```
+
 ### Inspect screen attributes for color/style debugging
 
 ```bash
@@ -215,6 +263,24 @@ tui-wright screen $SESSION --json | jq '.cells[1][0]'
 tui-wright kill $SESSION
 ```
 
+## Tips
+
+### Chain commands in a single Bash call
+
+Multiple `tui-wright` commands can be chained with `&&` to reduce round-trips. Only add a sleep before `screen` reads:
+
+```bash
+tui-wright key $SESSION f4 && sleep 0.2 && tui-wright type $SESSION "filter text" && sleep 0.3 && tui-wright screen $SESSION
+```
+
+### Sleep durations
+
+- **0.5s** for initial spawn (TUI apps need time to start and draw the first frame)
+- **0.3s** after typing text into interactive prompts (search bars, filters, REPLs)
+- **0.2s** after single key presses in an already-running app
+
+Complex TUI apps (htop, vim) generally need longer sleeps than simple ones (bash, python REPL).
+
 ## Important Notes
 
 - **Always sleep after input.** TUI apps need time to redraw. 0.2-0.5s is usually enough.
@@ -222,5 +288,6 @@ tui-wright kill $SESSION
 - **Screen text is trimmed.** Trailing whitespace per line and trailing empty lines are removed.
 - **Type does not add newlines.** Use `tui-wright key $SESSION enter` after typing a command.
 - **Sessions persist across your Bash calls.** The session ID is all you need to reconnect.
+- **Use `type` for uppercase shortcuts, not `key shift+X`.** The `shift+` modifier is not supported for keys. Send uppercase characters via `type` instead.
 
 For the full JSON screen schema and advanced usage, see [reference.md](./reference.md).
