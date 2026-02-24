@@ -33,6 +33,9 @@ pub fn print_response(response: &Response) {
             println!("{}", serde_json::to_string_pretty(snapshot).unwrap());
         }
         Response::Cursor { row, col } => println!("row: {}, col: {}", row, col),
+        Response::Diff { diff } => {
+            println!("{}", serde_json::to_string_pretty(diff).unwrap());
+        }
         Response::Error { message } => {
             eprintln!("Error: {}", message);
             std::process::exit(1);

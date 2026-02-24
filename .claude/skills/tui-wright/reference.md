@@ -149,6 +149,87 @@ Common errors:
 - **Unknown mouse action** — the action passed to `mouse` wasn't recognized
 - **Connection refused** — the daemon process crashed or was killed externally
 
+## Snapshot Diff Schema
+
+The `tui-wright snapshot diff <session> <file>` command returns a JSON object:
+
+```json
+{
+  "identical": false,
+  "dimensions_changed": {
+    "old_rows": 24,
+    "old_cols": 80,
+    "new_rows": 40,
+    "new_cols": 120
+  },
+  "cursor_changed": {
+    "old_row": 0,
+    "old_col": 5,
+    "new_row": 2,
+    "new_col": 10
+  },
+  "changed_cells": [
+    {
+      "row": 0,
+      "col": 0,
+      "old": { "char": "H", "fg": {"r":255,"g":255,"b":255}, "bg": {"r":0,"g":0,"b":0}, "bold": false, "italic": false, "underline": false, "inverse": false },
+      "new": { "char": "W", "fg": {"r":255,"g":255,"b":255}, "bg": {"r":0,"g":0,"b":0}, "bold": false, "italic": false, "underline": false, "inverse": false }
+    }
+  ],
+  "summary": {
+    "total_cells_compared": 1920,
+    "changed_cell_count": 5,
+    "dimensions_match": false,
+    "cursor_matches": false
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `identical` | `bool` | `true` if screens are exactly the same |
+| `dimensions_changed` | `object?` | Present only if rows/cols differ between baseline and current |
+| `cursor_changed` | `object?` | Present only if cursor position moved |
+| `changed_cells` | `CellChange[]` | Every cell that differs (char, color, or style) |
+| `summary` | `object` | Counts and boolean flags for quick inspection |
+
+Exit code: **0** if `identical` is true, **1** if false.
+
+## Trace Recording Format (asciicast v2)
+
+`tui-wright trace start` records a `.cast` file in the [asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/) format — newline-delimited JSON (NDJSON).
+
+```
+{"version":2,"width":80,"height":24,"timestamp":1740000000}
+[0.0,"o","$ echo hello\r\n"]
+[0.05,"i","echo hello"]
+[0.06,"m","type \"echo hello\""]
+[0.07,"i","\r"]
+[0.08,"m","key enter"]
+[0.5,"o","hello\r\n$ "]
+[1.0,"m","after-setup"]
+[2.0,"r","120x40"]
+```
+
+**Line 1** is the header (JSON object). **Lines 2+** are events (JSON arrays: `[time, code, data]`).
+
+| Event code | Description | Data format |
+|------------|-------------|-------------|
+| `"o"` | Terminal output | Raw PTY bytes as UTF-8 string |
+| `"i"` | Input sent to terminal | Raw bytes sent by tui-wright |
+| `"m"` | Marker / chapter point | Label string |
+| `"r"` | Terminal resize | `"COLSxROWS"` string |
+
+Auto-generated markers are inserted for every Key, Type, and Mouse command (e.g., `"key enter"`, `"type \"ls -la\""`, `"mouse press 10,5"`).
+
+Play back with:
+
+```bash
+asciinema play recording.cast
+```
+
+Or embed in HTML with the [asciinema-player](https://docs.asciinema.org/manual/player/quick-start/).
+
 ## Architecture Notes
 
 Each `spawn` command starts a background daemon process (double-forked, detached from the terminal). The daemon:

@@ -23,6 +23,15 @@ tui-wright waitfor <session> <text>    # Wait until text appears on screen (or t
 tui-wright assert <session> <text>     # Assert text is visible (exit 0 if found, 1 if not)
 tui-wright kill <session>              # End session
 tui-wright list                        # List active sessions
+
+# Trace recording (asciicast v2 format)
+tui-wright trace start <session> [--output path.cast]  # Start recording
+tui-wright trace stop <session>                        # Stop recording, finalize .cast file
+tui-wright trace marker <session> <label>              # Insert a named marker
+
+# Snapshot diffing
+tui-wright snapshot save <session> <file>   # Save current screen as JSON baseline
+tui-wright snapshot diff <session> <file>   # Compare current screen to baseline (exit 0=identical, 1=different)
 ```
 
 ## Core Workflow
@@ -213,6 +222,66 @@ tui-wright kill $SESSION
 
 **Always kill sessions when done.** Each session is a background daemon holding a PTY.
 
+## Trace Recording
+
+Record all terminal activity as an [asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/) `.cast` file, playable with `asciinema play` or the embeddable web player.
+
+```bash
+# Start recording
+tui-wright trace start $SESSION --output /tmp/my-session.cast
+
+# Do your interactions...
+tui-wright type $SESSION "echo hello"
+tui-wright key $SESSION enter
+
+# Insert custom markers for navigation in the player
+tui-wright trace marker $SESSION "after-setup"
+
+# Stop recording and finalize the file
+tui-wright trace stop $SESSION
+```
+
+The trace captures:
+- **Output events (`"o"`)** — raw PTY output bytes with timestamps, exactly as the terminal received them
+- **Input events (`"i"`)** — every keystroke, text, and mouse event sent through tui-wright
+- **Markers (`"m"`)** — automatically inserted for each Key/Type/Mouse command (e.g., `"key enter"`, `"type echo hello"`), plus any custom markers you insert
+- **Resize events (`"r"`)** — when `resize` is called
+
+If no `--output` path is given, the file is written to a temp directory. The trace is automatically stopped if the session is killed.
+
+Play back the recording:
+
+```bash
+asciinema play /tmp/my-session.cast
+```
+
+## Snapshot Diffing
+
+Save and compare screen snapshots for visual regression testing.
+
+```bash
+# Save a baseline snapshot
+tui-wright snapshot save $SESSION baseline.json
+
+# ... make changes ...
+
+# Compare current screen against the baseline
+tui-wright snapshot diff $SESSION baseline.json
+```
+
+`snapshot diff` outputs a JSON diff with:
+- **`identical`** — `true`/`false` overall result
+- **`dimensions_changed`** — old/new rows and cols (if changed)
+- **`cursor_changed`** — old/new cursor position (if moved)
+- **`changed_cells`** — list of every cell that differs, with old and new values (char, fg/bg colors, bold, italic, underline, inverse)
+- **`summary`** — total cells compared, number changed
+
+Exit codes: **0** if identical, **1** if different — use in test scripts:
+
+```bash
+tui-wright snapshot diff $SESSION baseline.json && echo "PASS" || echo "FAIL"
+```
+
 ## Practical Patterns
 
 ### Run a command in bash and read output
@@ -338,5 +407,7 @@ Complex TUI apps (htop, vim) generally need longer sleeps than simple ones (bash
 - **Type does not add newlines.** Use `tui-wright key $SESSION enter` after typing a command.
 - **Sessions persist across your Bash calls.** The session ID is all you need to reconnect.
 - **Use `type` for uppercase shortcuts, not `key shift+X`.** The `shift+` modifier is not supported for keys. Send uppercase characters via `type` instead.
+- **Traces are asciicast v2.** The `.cast` files work with `asciinema play`, the web player, and asciinema.org.
+- **Snapshot diff uses exit codes.** Exit 0 means identical, exit 1 means different — chain with `&&` or `||` in scripts.
 
-For the full JSON screen schema and advanced usage, see [reference.md](./reference.md).
+For the full JSON screen schema, diff schema, and advanced usage, see [reference.md](./reference.md).

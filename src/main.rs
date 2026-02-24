@@ -109,6 +109,58 @@ enum Commands {
         #[arg(long, default_value = "24")]
         rows: u16,
     },
+    /// Trace recording commands (asciicast v2 format)
+    Trace {
+        #[command(subcommand)]
+        action: TraceCommands,
+    },
+    /// Snapshot save and diff commands
+    Snapshot {
+        #[command(subcommand)]
+        action: SnapshotCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum TraceCommands {
+    /// Start recording an asciicast v2 trace
+    Start {
+        /// Session ID
+        session: String,
+        /// Output file path (defaults to /tmp/tui-wright-trace-<pid>.cast)
+        #[arg(long)]
+        output: Option<String>,
+    },
+    /// Stop recording and finalize the trace file
+    Stop {
+        /// Session ID
+        session: String,
+    },
+    /// Insert a named marker into the trace
+    Marker {
+        /// Session ID
+        session: String,
+        /// Marker label
+        label: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum SnapshotCommands {
+    /// Save current screen snapshot to a JSON file
+    Save {
+        /// Session ID
+        session: String,
+        /// Output file path
+        file: String,
+    },
+    /// Compare current screen against a saved baseline (exit 0 if identical, 1 if different)
+    Diff {
+        /// Session ID
+        session: String,
+        /// Path to baseline JSON file
+        file: String,
+    },
 }
 
 fn main() {
@@ -372,5 +424,107 @@ fn main() {
                 std::process::exit(1);
             }
         }
+
+        Commands::Trace { action } => match action {
+            TraceCommands::Start { session, output } => {
+                let request = Request::TraceStart { output };
+                match client::send_request(&session, &request) {
+                    Ok(resp) => client::print_response(&resp),
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            TraceCommands::Stop { session } => {
+                let request = Request::TraceStop;
+                match client::send_request(&session, &request) {
+                    Ok(resp) => client::print_response(&resp),
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            TraceCommands::Marker { session, label } => {
+                let request = Request::TraceMarker { label };
+                match client::send_request(&session, &request) {
+                    Ok(resp) => client::print_response(&resp),
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        },
+
+        Commands::Snapshot { action } => match action {
+            SnapshotCommands::Save { session, file } => {
+                let request = Request::Screen { json: true };
+                match client::send_request(&session, &request) {
+                    Ok(Response::Screen { snapshot }) => {
+                        let json = serde_json::to_string_pretty(&snapshot).unwrap();
+                        if let Err(e) = std::fs::write(&file, json) {
+                            eprintln!("Error writing file: {}", e);
+                            std::process::exit(1);
+                        }
+                        println!("Snapshot saved to {}", file);
+                    }
+                    Ok(Response::Error { message }) => {
+                        eprintln!("Error: {}", message);
+                        std::process::exit(1);
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                    _ => {
+                        eprintln!("Unexpected response");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            SnapshotCommands::Diff { session, file } => {
+                let content = match std::fs::read_to_string(&file) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Error reading baseline file: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                let baseline: tui_wright::screen::ScreenSnapshot = match serde_json::from_str(&content) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        eprintln!("Error parsing baseline JSON: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+
+                let request = Request::SnapshotDiff { baseline };
+                match client::send_request(&session, &request) {
+                    Ok(Response::Diff { diff }) => {
+                        let json = serde_json::to_string_pretty(&diff).unwrap();
+                        println!("{}", json);
+                        if diff.identical {
+                            std::process::exit(0);
+                        } else {
+                            std::process::exit(1);
+                        }
+                    }
+                    Ok(Response::Error { message }) => {
+                        eprintln!("Error: {}", message);
+                        std::process::exit(1);
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                    _ => {
+                        eprintln!("Unexpected response");
+                        std::process::exit(1);
+                    }
+                }
+            }
+        },
     }
 }

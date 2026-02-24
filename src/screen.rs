@@ -9,7 +9,7 @@ pub struct ScreenSnapshot {
     pub cells: Vec<Vec<CellInfo>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CellInfo {
     pub char: String,
     pub fg: ColorInfo,
@@ -20,7 +20,7 @@ pub struct CellInfo {
     pub inverse: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColorInfo {
     pub r: u8,
     pub g: u8,

@@ -50,13 +50,8 @@ pub fn run_daemon(command: &str, args: &[String], cols: u16, rows: u16, session_
         let response = handle_request(&mut session, request);
         let _ = write_response(&stream, &response);
 
-        if matches!(response, Response::Ok) {
-            if let Ok(serde_json::Value::String(ref t)) = serde_json::from_str::<serde_json::Value>(line.trim()) {
-                let _ = t;
-            }
-        }
-
         if line.trim().contains("\"Kill\"") || line.trim().contains("\"type\":\"Kill\"") {
+            let _ = session.trace_stop();
             let _ = std::fs::remove_file(&sock);
             break;
         }
@@ -66,6 +61,15 @@ pub fn run_daemon(command: &str, args: &[String], cols: u16, rows: u16, session_
 }
 
 fn handle_request(session: &mut Session, request: Request) -> Response {
+    match &request {
+        Request::Key { name } => session.trace_marker(&format!("key {}", name)),
+        Request::Type { text } => session.trace_marker(&format!("type {:?}", text)),
+        Request::Mouse { action, col, row } => {
+            session.trace_marker(&format!("mouse {} {},{}", action, col, row));
+        }
+        _ => {}
+    }
+
     match request {
         Request::Screen { json } => {
             if json {
@@ -98,6 +102,32 @@ fn handle_request(session: &mut Session, request: Request) -> Response {
             Ok(()) => Response::Ok,
             Err(e) => Response::Error { message: e.to_string() },
         },
+        Request::TraceStart { output } => {
+            let path = match output {
+                Some(p) => PathBuf::from(p),
+                None => {
+                    let tmp = std::env::temp_dir();
+                    tmp.join(format!("tui-wright-trace-{}.cast", std::process::id()))
+                }
+            };
+            match session.trace_start(path, None) {
+                Ok(()) => Response::Ok,
+                Err(e) => Response::Error { message: e.to_string() },
+            }
+        }
+        Request::TraceStop => match session.trace_stop() {
+            Ok(()) => Response::Ok,
+            Err(e) => Response::Error { message: e.to_string() },
+        },
+        Request::TraceMarker { label } => {
+            session.trace_marker(&label);
+            Response::Ok
+        }
+        Request::SnapshotDiff { baseline } => {
+            let current = session.screen_snapshot();
+            let diff_result = crate::diff::compute_diff(&baseline, &current);
+            Response::Diff { diff: diff_result }
+        }
     }
 }
 
