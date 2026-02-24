@@ -11,6 +11,7 @@ You have access to `tui-wright`, a tool that spawns TUI processes in a virtual t
 
 ```bash
 tui-wright spawn <command> [args...]   # Start a session (returns session ID)
+tui-wright run <command>               # Spawn a shell, type command, press enter (returns session ID)
 tui-wright screen <session>            # Read current screen text
 tui-wright screen <session> --json     # Screen with cell attributes (color, bold, etc.)
 tui-wright type <session> <text>       # Send text characters
@@ -18,6 +19,8 @@ tui-wright key <session> <name>        # Send special key
 tui-wright mouse <session> <action> <col> <row>  # Send mouse event
 tui-wright resize <session> <cols> <rows>         # Change viewport
 tui-wright cursor <session>            # Get cursor position
+tui-wright waitfor <session> <text>    # Wait until text appears on screen (or timeout)
+tui-wright assert <session> <text>     # Assert text is visible (exit 0 if found, 1 if not)
 tui-wright kill <session>              # End session
 tui-wright list                        # List active sessions
 ```
@@ -43,6 +46,13 @@ tui-wright screen $SESSION
 
 **Always add a short sleep** (0.2-0.5s) after sending input before reading the screen. TUI applications need time to process input and redraw.
 
+**Prefer `waitfor` over `sleep`** when you know what text should appear — it's both faster and more reliable:
+
+```bash
+tui-wright key $SESSION enter
+tui-wright waitfor $SESSION "expected output"   # returns as soon as text appears (up to 5s)
+```
+
 ## Spawning Sessions
 
 ```bash
@@ -57,6 +67,22 @@ SESSION=$(tui-wright spawn vim myfile.txt | awk '{print $2}')
 ```
 
 The `spawn` command starts a background daemon and returns immediately. The session ID is a short hex string like `a1b2c3`.
+
+### Running a command directly
+
+If you just want to run a command in a shell (spawn + type + enter in one step), use `run`:
+
+```bash
+# Spawns a bash shell, types the command, and presses enter
+SESSION=$(tui-wright run "ls -la /tmp" | awk '{print $2}')
+sleep 0.3
+tui-wright screen $SESSION
+
+# With custom terminal size
+SESSION=$(tui-wright run "htop" --cols 120 --rows 40 | awk '{print $2}')
+```
+
+This is equivalent to `spawn bash` followed by `type` and `key enter`, but in a single command.
 
 ## Sending Input
 
@@ -150,6 +176,31 @@ tui-wright resize $SESSION 120 40
 
 The TUI application receives a `SIGWINCH` and redraws at the new size. Wait briefly after resizing before reading the screen.
 
+## Waiting and Assertions
+
+### Wait for text to appear
+
+`waitfor` polls the screen until the given text appears, or times out:
+
+```bash
+tui-wright waitfor $SESSION "expected output"              # Default 5s timeout
+tui-wright waitfor $SESSION "Loading complete" --timeout 10000  # 10s timeout
+```
+
+On success, prints the screen contents and exits 0. On timeout, prints an error to stderr and exits 1.
+
+**Prefer `waitfor` over `sleep`** — it returns as soon as the text appears, so it's both faster and more reliable than guessing a sleep duration.
+
+### Assert text is visible
+
+`assert` checks whether text is currently on screen (no polling, no waiting):
+
+```bash
+tui-wright assert $SESSION "Welcome"    # exit 0 if found, exit 1 if not
+```
+
+Always prints the current screen contents. Use `assert` for quick checks after you've already waited for the screen to stabilize.
+
 ## Session Management
 
 ```bash
@@ -167,10 +218,8 @@ tui-wright kill $SESSION
 ### Run a command in bash and read output
 
 ```bash
-SESSION=$(tui-wright spawn bash | awk '{print $2}')
-tui-wright type $SESSION "ls -la /tmp"
-tui-wright key $SESSION enter
-sleep 0.3
+SESSION=$(tui-wright run "ls -la /tmp" | awk '{print $2}')
+tui-wright waitfor $SESSION "$"    # wait for prompt to return
 tui-wright screen $SESSION
 tui-wright kill $SESSION
 ```
@@ -283,7 +332,7 @@ Complex TUI apps (htop, vim) generally need longer sleeps than simple ones (bash
 
 ## Important Notes
 
-- **Always sleep after input.** TUI apps need time to redraw. 0.2-0.5s is usually enough.
+- **Prefer `waitfor` over sleep.** Use `tui-wright waitfor $SESSION "text"` when you know what to expect — it's faster and more reliable. Fall back to `sleep 0.2-0.5` only when there's no specific text to wait for.
 - **Always kill sessions when done.** They are background daemons.
 - **Screen text is trimmed.** Trailing whitespace per line and trailing empty lines are removed.
 - **Type does not add newlines.** Use `tui-wright key $SESSION enter` after typing a command.
