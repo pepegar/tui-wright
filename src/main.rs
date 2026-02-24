@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 use tui_wright::client;
-use tui_wright::protocol::Request;
+use tui_wright::protocol::{Request, Response};
 use tui_wright::server;
 
 #[derive(Parser)]
@@ -81,6 +81,34 @@ enum Commands {
     },
     /// List active sessions
     List,
+    /// Wait until text appears on screen (or timeout)
+    WaitFor {
+        /// Session ID
+        session: String,
+        /// Text to wait for
+        text: String,
+        /// Timeout in milliseconds
+        #[arg(long, default_value = "5000")]
+        timeout: u64,
+    },
+    /// Assert that text is currently visible on screen
+    Assert {
+        /// Session ID
+        session: String,
+        /// Text to search for
+        text: String,
+    },
+    /// Spawn a session and run a command (spawn + type + enter)
+    Run {
+        /// Command to run
+        command: String,
+        /// Terminal columns
+        #[arg(long, default_value = "80")]
+        cols: u16,
+        /// Terminal rows
+        #[arg(long, default_value = "24")]
+        rows: u16,
+    },
 }
 
 fn main() {
@@ -226,6 +254,122 @@ fn main() {
                 for s in sessions {
                     println!("{}", s);
                 }
+            }
+        }
+
+        Commands::WaitFor { session, text, timeout } => {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout);
+            loop {
+                let request = Request::Screen { json: false };
+                match client::send_request(&session, &request) {
+                    Ok(Response::Text { text: screen }) => {
+                        if screen.contains(&text) {
+                            println!("{}", screen);
+                            std::process::exit(0);
+                        }
+                    }
+                    Ok(Response::Error { message }) => {
+                        eprintln!("Error: {}", message);
+                        std::process::exit(1);
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                    _ => {}
+                }
+                if std::time::Instant::now() >= deadline {
+                    eprintln!("Timeout: \"{}\" not found after {}ms", text, timeout);
+                    std::process::exit(1);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+
+        Commands::Assert { session, text } => {
+            let request = Request::Screen { json: false };
+            match client::send_request(&session, &request) {
+                Ok(Response::Text { text: screen }) => {
+                    println!("{}", screen);
+                    if screen.contains(&text) {
+                        std::process::exit(0);
+                    } else {
+                        std::process::exit(1);
+                    }
+                }
+                Ok(Response::Error { message }) => {
+                    eprintln!("Error: {}", message);
+                    std::process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+                _ => {
+                    eprintln!("Unexpected response");
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Commands::Run { command, cols, rows } => {
+            let session_id = server::generate_session_id();
+            let sock = server::socket_path(&session_id);
+            let cwd = std::env::current_dir().expect("Failed to get current directory");
+
+            unsafe {
+                let pid = libc::fork();
+                if pid < 0 {
+                    eprintln!("Failed to fork");
+                    std::process::exit(1);
+                }
+                if pid > 0 {
+                    for _ in 0..50 {
+                        if sock.exists() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+
+                    let type_req = Request::Type { text: command };
+                    if let Err(e) = client::send_request(&session_id, &type_req) {
+                        eprintln!("Error typing command: {}", e);
+                        std::process::exit(1);
+                    }
+                    let key_req = Request::Key { name: "enter".to_string() };
+                    if let Err(e) = client::send_request(&session_id, &key_req) {
+                        eprintln!("Error sending enter: {}", e);
+                        std::process::exit(1);
+                    }
+
+                    println!("session: {}", session_id);
+                    return;
+                }
+
+                libc::setsid();
+                let pid2 = libc::fork();
+                if pid2 < 0 {
+                    std::process::exit(1);
+                }
+                if pid2 > 0 {
+                    std::process::exit(0);
+                }
+
+                let devnull = libc::open(b"/dev/null\0".as_ptr() as *const _, libc::O_RDWR);
+                if devnull >= 0 {
+                    libc::dup2(devnull, 0);
+                    libc::dup2(devnull, 1);
+                    libc::dup2(devnull, 2);
+                    if devnull > 2 {
+                        libc::close(devnull);
+                    }
+                }
+            }
+
+            if let Err(e) = server::run_daemon("bash", &[], cols, rows, &session_id, &cwd) {
+                eprintln!("Daemon error: {}", e);
+                let _ = std::fs::remove_file(&sock);
+                std::process::exit(1);
             }
         }
     }
