@@ -57,6 +57,8 @@
         }
       );
 
+      skills = ./.claude/skills;
+
       formatter = forEachSupportedSystem ({ pkgs, ... }: pkgs.nixfmt-rfc-style);
     };
 }
