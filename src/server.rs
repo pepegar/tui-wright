@@ -47,6 +47,19 @@ pub fn run_daemon(command: &str, args: &[String], cols: u16, rows: u16, session_
             }
         };
 
+        if !session.is_alive() {
+            let is_kill = matches!(&request, Request::Kill);
+            if !is_kill {
+                let resp = Response::Error { message: "Child process has exited".to_string() };
+                let _ = write_response(&stream, &resp);
+            } else {
+                let _ = write_response(&stream, &Response::Ok);
+            }
+            let _ = session.trace_stop();
+            let _ = std::fs::remove_file(&sock);
+            break;
+        }
+
         let response = handle_request(&mut session, request);
         let _ = write_response(&stream, &response);
 
